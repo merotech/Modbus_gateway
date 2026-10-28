@@ -16,8 +16,35 @@ SCADA / HMI  ──►  local slave :502  ◄──►  [ shared coils + holding
 
 ```bash
 npm start                          # uses ./config.json (created with defaults on first run)
-node src/index.js --config D:/gw/config.json
+node src/index.js --config D:/gw/config.json --log D:/gw/gateway.log
+node src/index.js --service ...    # watchdog: restarts the gateway if it exits
 ```
+
+## Windows executable and installer
+
+```bash
+npm run build:exe
+```
+
+This produces `dist/ModbusGateway/modbus-gateway.exe`, a single file that needs no Node.js
+install, plus `dist/ModbusGateway-<version>-win-x64.zip` containing the exe and the installer.
+The exe is a Node single executable application (a copy of the building machine's `node.exe` with
+the bundled gateway and UI injected), so build with the Node version you want to ship. The first
+build fetches `postject` through npx.
+
+On the target PC, unzip it and double-click `install.cmd`. It asks for administrator rights and then:
+
+- copies the exe to `C:\Program Files\ModbusGateway`
+- keeps `config.json` and `gateway.log` in `C:\ProgramData\ModbusGateway`
+- registers a Task Scheduler task `ModbusGateway` that runs as SYSTEM at boot, in `--service` (watchdog) mode
+- adds an inbound firewall rule for the program, so ports 502 and 8080 are reachable
+
+Running `install.cmd` again upgrades the program and keeps the configuration. `uninstall.cmd`
+removes the program, the task and the firewall rule but keeps the configuration; to delete that
+too, pass `-RemoveData` to `uninstall.ps1`.
+
+To run it without installing, double-click `modbus-gateway.exe`: it runs in a console window
+with `config.json` next to the exe.
 
 Open `http://<gateway-ip>:8080`. The default page shows live status: the local slave, which
 SCADA clients are connected to it, and every configured client device with per-line status,

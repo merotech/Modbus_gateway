@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/index.js",
     "sim": "node test/sim-slave.js",
+    "build:exe": "node scripts/build-exe.js",
     "test": "node --test test/*.test.js"
   },
   "engines": { "node": ">=18" },

@@ -1,14 +1,12 @@
 'use strict';
 
 const http = require('node:http');
-const fs = require('node:fs');
-const path = require('node:path');
 const crypto = require('node:crypto');
 const { validateConfig, saveConfig } = require('./config');
+const { readAsset } = require('./runtime');
 
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const MAX_BODY = 1024 * 1024;
-const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 function sameSecret(a, b) {
   // Hash first so timingSafeEqual sees equal-length buffers regardless of input length.
@@ -69,7 +67,7 @@ function createWebServer({ gateway, configFile, log }) {
 
     if (req.method === 'GET' && (p === '/' || p === '/index.html')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      return fs.createReadStream(path.join(PUBLIC_DIR, 'index.html')).pipe(res);
+      return res.end(readAsset('index.html'));
     }
 
     if (req.method === 'GET' && p === '/api/status') return send(res, 200, gateway.status());
