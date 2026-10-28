@@ -18,6 +18,7 @@ SCADA / HMI  ──►  local slave :502  ◄──►  [ shared coils + holding
 npm start                          # uses ./config.json (created with defaults on first run)
 node src/index.js --config D:/gw/config.json --log D:/gw/gateway.log
 node src/index.js --service ...    # watchdog: restarts the gateway if it exits
+node src/index.js --no-browser     # do not open the web UI on start
 ```
 
 ## Windows executable and installer
@@ -43,7 +44,10 @@ Running `install.cmd` again upgrades the program and keeps the configuration. `u
 removes the program, the task and the firewall rule but keeps the configuration; to delete that
 too, pass `-RemoveData` to `uninstall.ps1`.
 
-To run it without installing, double-click `modbus-gateway.exe`: it runs in a console window
+Install adds a "Modbus Gateway" Start Menu and desktop shortcut that opens the web UI.
+
+To run it without installing, double-click `modbus-gateway.exe`: it opens the web UI in the
+browser and runs in a console window
 with `config.json` next to the exe.
 
 Open `http://<gateway-ip>:8080`. The default page shows live status: the local slave, which

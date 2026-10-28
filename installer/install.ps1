@@ -56,6 +56,20 @@ try {
     Get-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     New-NetFirewallRule -DisplayName $RuleName -Direction Inbound -Program $exe -Action Allow -Profile Any | Out-Null
 
+    # The shortcut runs the exe, which sees the installed gateway already answering and only
+    # opens the browser on it, so it is safe to click any time.
+    Write-Host 'Adding Start Menu and desktop shortcuts'
+    $shell = New-Object -ComObject WScript.Shell
+    foreach ($dir in "$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:PUBLIC\Desktop") {
+        $lnk = $shell.CreateShortcut((Join-Path $dir 'Modbus Gateway.lnk'))
+        $lnk.TargetPath = $exe
+        $lnk.Arguments = "--config `"$config`" --log `"$log`""
+        $lnk.WorkingDirectory = $DataDir
+        $lnk.WindowStyle = 7
+        $lnk.Description = 'Open the Modbus Gateway web UI'
+        $lnk.Save()
+    }
+
     Write-Host 'Starting gateway'
     Start-ScheduledTask -TaskName $TaskName
     Start-Sleep -Seconds 3
@@ -68,6 +82,7 @@ try {
     Write-Host ''
     if ($running) {
         Write-Host "Installed and running. Web UI: http://localhost:$webPort  (configuration password: hotelo)" -ForegroundColor Green
+        Start-Process "http://localhost:$webPort"
     } else {
         Write-Host "Installed, but the gateway is not running. Check $log" -ForegroundColor Yellow
     }

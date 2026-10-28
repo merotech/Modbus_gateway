@@ -32,6 +32,10 @@ try {
     Get-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     Write-Host 'Removed firewall rule'
 
+    Remove-Item "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Modbus Gateway.lnk", "$env:PUBLIC\Desktop\Modbus Gateway.lnk" `
+        -Force -ErrorAction SilentlyContinue
+    Write-Host 'Removed shortcuts'
+
     # This script may itself live in InstallDir; PowerShell has already read it, so deleting is safe.
     if (Test-Path $InstallDir) {
         Remove-Item $InstallDir -Recurse -Force

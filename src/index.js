@@ -3,6 +3,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const http = require('node:http');
 const { spawn } = require('node:child_process');
 const { loadConfig } = require('./config');
 const { Gateway } = require('./gateway');
@@ -48,11 +49,36 @@ function supervise() {
   run();
 }
 
+function openBrowser(url) {
+  // `start` is a cmd built-in; the empty "" is its window-title argument, not the URL.
+  const [cmd, cmdArgs] =
+    process.platform === 'win32' ? ['cmd', ['/c', 'start', '""', url]] : [process.platform === 'darwin' ? 'open' : 'xdg-open', [url]];
+  try {
+    spawn(cmd, cmdArgs, { detached: true, stdio: 'ignore', windowsHide: true }).on('error', () => {}).unref();
+  } catch {
+    // No browser available (e.g. a headless box); the URL is in the log.
+  }
+}
+
+// True when a gateway already answers on this web port, e.g. the installed copy is running.
+function gatewayAlreadyRunning(port) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port, path: '/api/status', timeout: 1000 }, (res) => {
+      res.resume();
+      resolve(res.statusCode === 200);
+    });
+    req.on('timeout', () => req.destroy());
+    req.on('error', () => resolve(false));
+  });
+}
+
 async function main() {
   if (args.includes('--service')) return supervise();
   // Killing the watchdog (e.g. stopping the scheduled task) does not kill children on
   // Windows; the closed IPC channel is the signal to exit with it.
   if (process.send) process.on('disconnect', () => process.exit(0));
+  // Under the watchdog the gateway runs as SYSTEM with no desktop to show a browser on.
+  const interactive = !process.send && !args.includes('--no-browser');
 
   const configFile = path.resolve(argValue('--config') || path.join(appDir(), 'config.json'));
 
@@ -61,6 +87,15 @@ async function main() {
     for (const e of errors) log(`Config error: ${e}`);
     process.exit(1);
   }
+
+  const url = `http://localhost:${config.web.port}`;
+  // Starting a second copy would poll every device twice, so when one is already running
+  // just show its UI.
+  if (interactive && (await gatewayAlreadyRunning(config.web.port))) {
+    log(`Gateway already running; opening ${url}`);
+    openBrowser(url);
+    return;
+  }
   log(`Using configuration ${configFile}`);
 
   const gateway = new Gateway();
@@ -68,7 +103,10 @@ async function main() {
   await gateway.apply(config);
 
   const web = createWebServer({ gateway, configFile, log });
-  web.listen(config.web.port, () => log(`Web UI on http://localhost:${config.web.port}`));
+  web.listen(config.web.port, () => {
+    log(`Web UI on ${url}`);
+    if (interactive) openBrowser(url);
+  });
   web.on('error', (err) => {
     log(`Web UI failed on port ${config.web.port}: ${err.message}`);
     process.exit(1);
