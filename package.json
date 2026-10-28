@@ -1,0 +1,15 @@
+{
+  "name": "modbus-gateway",
+  "version": "1.0.0",
+  "description": "Modbus TCP gateway: one local Modbus TCP slave fed by N Modbus TCP masters, with a web configuration UI",
+  "main": "src/index.js",
+  "bin": { "modbus-gateway": "src/index.js" },
+  "scripts": {
+    "start": "node src/index.js",
+    "sim": "node test/sim-slave.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED",
+  "private": true
+}

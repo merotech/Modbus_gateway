@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modbus TCP Gateway</title>
+<style>
+  :root {
+    --bg: #f3f5f8; --panel: #fff; --text: #1d2330; --muted: #677085; --line: #dde2ea;
+    --accent: #1f6feb; --ok: #1a7f37; --ok-bg: #dafbe1; --err: #cf222e; --err-bg: #ffebe9;
+    --warn: #9a6700; --warn-bg: #fff8c5; --off: #6e7781; --off-bg: #eaeef2;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: #0d1b2a; color: #fff; }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; flex: 1; }
+  header .meta { font-size: 12px; opacity: .75; }
+  main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 14px; }
+  .panel-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .panel-head h2 { margin: 0; font-size: 15px; }
+  .panel-body { padding: 10px 14px; }
+  .kv { color: var(--muted); font-size: 13px; }
+  .kv b { color: var(--text); font-weight: 600; }
+  .spacer { flex: 1; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; font-size: 13px; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td.values { font-family: ui-monospace, Consolas, monospace; font-size: 12px; white-space: normal; max-width: 360px; }
+  td.err { color: var(--err); white-space: normal; max-width: 280px; }
+  .scroll { overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+  .s-ok, .s-connected, .s-listening { background: var(--ok-bg); color: var(--ok); }
+  .s-error, .s-offline { background: var(--err-bg); color: var(--err); }
+  .s-connecting, .s-pending { background: var(--warn-bg); color: var(--warn); }
+  .s-disabled, .s-stopped { background: var(--off-bg); color: var(--off); }
+  button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+  button:hover { background: #f0f3f7; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: #1a5fcc; }
+  button.danger { color: var(--err); }
+  button.small { padding: 2px 8px; font-size: 12px; }
+  header button { background: transparent; color: #fff; border-color: rgba(255,255,255,.35); }
+  header button:hover { background: rgba(255,255,255,.1); }
+  input, select { font: inherit; padding: 4px 6px; border: 1px solid #c9d1db; border-radius: 5px; background: #fff; }
+  input[type=number] { width: 90px; }
+  input.ip { width: 150px; }
+  input.name { width: 160px; }
+  input.invalid { border-color: var(--err); background: var(--err-bg); }
+  label.f { display: inline-flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 2px; margin-right: 10px; }
+  label.chk { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+  .errors { background: var(--err-bg); color: var(--err); border: 1px solid #ffc1c0; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; }
+  .warnings { background: var(--warn-bg); color: var(--warn); border: 1px solid #eedc82; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; }
+  .notice { background: var(--ok-bg); color: var(--ok); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; }
+  .errors ul, .warnings ul { margin: 4px 0 0; padding-left: 18px; }
+  .empty { color: var(--muted); padding: 8px 0; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 4px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .grid div { background: #f6f8fa; border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+  .grid span { color: var(--muted); }
+  .modal-bg { position: fixed; inset: 0; background: rgba(13,27,42,.55); display: flex; align-items: center; justify-content: center; }
+  .modal { background: #fff; border-radius: 10px; padding: 22px; width: 320px; box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+  .modal h3 { margin: 0 0 12px; }
+  .modal input { width: 100%; padding: 8px; margin-bottom: 10px; }
+  .modal .err { color: var(--err); font-size: 13px; min-height: 18px; margin-bottom: 8px; }
+  .hidden { display: none !important; }
+  .hint { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Modbus TCP Gateway</h1>
+  <span class="meta" id="hdr-meta"></span>
+  <button id="btn-config">Configuration</button>
+  <button id="btn-status" class="hidden">Back to status</button>
+  <button id="btn-logout" class="hidden">Log out</button>
+</header>
+
+<main>
+  <!-- ======== STATUS VIEW (default) ======== -->
+  <section id="view-status">
+    <div id="status-error" class="errors hidden"></div>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Local Modbus TCP slave</h2>
+        <span id="slave-badge"></span>
+        <span class="kv" id="slave-meta"></span>
+      </div>
+      <div class="panel-body" id="slave-clients"></div>
+    </div>
+    <div id="masters"></div>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Data manipulation</h2>
+        <span class="kv" id="manip-meta"></span>
+      </div>
+      <div class="panel-body scroll" id="manip-status"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Local slave data</h2>
+        <span class="spacer"></span>
+        <select id="data-area"><option value="holdings">Holding registers</option><option value="coils">Coils</option></select>
+        <label class="kv">Start <input type="number" id="data-start" value="0" min="0" max="65535"></label>
+        <label class="kv">Count <input type="number" id="data-count" value="50" min="1" max="500"></label>
+      </div>
+      <div class="panel-body"><div class="grid" id="data-grid"></div></div>
+    </div>
+  </section>
+
+  <!-- ======== CONFIG VIEW (password protected) ======== -->
+  <section id="view-config" class="hidden">
+    <div id="cfg-messages"></div>
+    <div class="toolbar">
+      <button class="primary" id="btn-save">Save &amp; apply</button>
+      <button id="btn-reload">Discard changes</button>
+      <button id="btn-add-master">+ Add client</button>
+      <span class="spacer"></span>
+      <span class="hint">Addresses are 0-based Modbus protocol addresses (holding 40001 = 0).</span>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Gateway</h2></div>
+      <div class="panel-body">
+        <label class="f">Local slave TCP port <input type="number" data-g="slave.port" min="1" max="65535"></label>
+        <label class="f">Local slave unit ID (0 = any) <input type="number" data-g="slave.unitId" min="0" max="255"></label>
+        <label class="f">Web UI port <input type="number" data-g="web.port" min="1" max="65535"></label>
+      </div>
+    </div>
+    <div id="cfg-masters"></div>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Data manipulation on local slave</h2>
+        <label class="kv">Run every <input type="number" data-g="manipulation.intervalMs" min="10" max="60000"> ms</label>
+        <span class="spacer"></span>
+        <span class="hint">Bit 0 = LSB. A bit range that passes bit 15 continues into the next register. Lines run top to bottom.</span>
+      </div>
+      <div class="panel-body scroll" id="cfg-manip"></div>
+    </div>
+  </section>
+</main>
+
+<div class="modal-bg hidden" id="login">
+  <form class="modal" id="login-form">
+    <h3>Configuration login</h3>
+    <input type="password" id="login-pass" placeholder="Password" autocomplete="current-password">
+    <div class="err" id="login-err"></div>
+    <div class="toolbar" style="margin:0">
+      <button type="submit" class="primary">Enter</button>
+      <button type="button" id="login-cancel">Cancel</button>
+    </div>
+  </form>
+</div>
+
+<script>
+'use strict';
+const FUNCTIONS = {
+  readCoils: 'Read coils',
+  writeCoils: 'Write coils',
+  readHoldings: 'Read holdings',
+  writeHoldings: 'Write holdings',
+};
+const MANIPULATIONS = {
+  coilsToHolding: 'Copy coils → holding bits',
+  holdingBitsToCoils: 'Copy holding bits → coils',
+  holdingBitsToHolding: 'Copy holding bits → holding bits',
+};
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const badge = (state) => `<span class="badge s-${esc(state)}">${esc(state)}</span>`;
+const ago = (t) => {
+  if (!t) return '—';
+  const s = Math.round((Date.now() - t) / 1000);
+  return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s / 60)}m ago` : `${Math.floor(s / 3600)}h ago`;
+};
+const duration = (sec) => {
+  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m ${sec % 60}s`;
+};
+
+let token = sessionStorageGet('gwToken');
+let view = 'status';
+let cfg = null;
+
+function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
+function sessionStorageSet(k, v) { try { v ? sessionStorage.setItem(k, v) : sessionStorage.removeItem(k); } catch {} }
+
+async function api(method, url, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  return { status: res.status, data };
+}
+
+/* ---------------- status view ---------------- */
+async function refreshStatus() {
+  if (view !== 'status') return;
+  try {
+    const { data: s } = await api('GET', '/api/status');
+    $('status-error').classList.add('hidden');
+    renderStatus(s);
+  } catch {
+    $('status-error').textContent = 'Lost connection to the gateway service.';
+    $('status-error').classList.remove('hidden');
+  }
+}
+
+function renderStatus(s) {
+  $('hdr-meta').textContent = `Uptime ${duration(s.uptimeSec)}`;
+  const sl = s.slave;
+  $('slave-badge').innerHTML = badge(sl.state);
+  $('slave-meta').innerHTML = `Port <b>${sl.port}</b> · Unit ID <b>${sl.unitId || 'any'}</b> · Requests <b>${sl.requests}</b>` +
+    (sl.lastError ? ` · <span style="color:var(--err)">${esc(sl.lastError)}</span>` : '');
+  $('slave-clients').innerHTML = sl.clients.length
+    ? `<table><tr><th>Connected SCADA / HMI</th><th>Connected</th><th>Requests</th><th>Last request</th></tr>${
+        sl.clients.map((c) => `<tr><td>${esc(c.address)}</td><td>${ago(c.connectedAt)}</td><td>${c.requests}</td><td>${ago(c.lastRequestAt)}</td></tr>`).join('')}</table>`
+    : '<div class="empty">No SCADA/HMI connected to the local slave.</div>';
+
+  const counts = { connected: 0, total: s.masters.length };
+  s.masters.forEach((m) => { if (m.state === 'connected') counts.connected++; });
+
+  $('masters').innerHTML = `<div class="kv" style="margin:4px 0 8px">Clients connected: <b>${counts.connected}</b> / ${counts.total}</div>` +
+    (s.masters.length ? s.masters.map((m) => `
+    <div class="panel">
+      <div class="panel-head">
+        <h2>${esc(m.name)}</h2>${badge(m.state)}
+        <span class="kv">IP <b>${esc(m.ip)}:${m.port}</b> · Poll <b>${m.pollIntervalMs} ms</b> · Last cycle <b>${m.cycleMs ?? '—'} ms</b> · Cycles <b>${m.cycles}</b>${m.connectedSince ? ` · Connected <b>${ago(m.connectedSince)}</b>` : ''}</span>
+        ${m.lastError && m.state !== 'connected' ? `<span class="kv" style="color:var(--err)">${esc(m.lastError)}</span>` : ''}
+      </div>
+      <div class="panel-body scroll">${m.lines.length ? `
+        <table>
+          <tr><th>#</th><th>Modbus ID</th><th>Transaction</th><th>Client start</th><th>Local target</th><th>Count</th><th>Status</th><th>OK</th><th>Errors</th><th>Resp.</th><th>Last OK</th><th>Values (first 16)</th><th>Last error</th></tr>
+          ${m.lines.map((l, i) => `<tr>
+            <td>${i + 1}</td><td>${l.unitId}</td><td>${FUNCTIONS[l.function] || esc(l.function)}</td>
+            <td>${l.remoteAddress}</td><td>${l.localAddress}</td><td>${l.count}</td>
+            <td>${badge(l.status)}</td><td>${l.okCount}</td><td>${l.errorCount}</td>
+            <td>${l.responseMs != null ? l.responseMs + ' ms' : '—'}</td><td>${ago(l.lastOkAt)}</td>
+            <td class="values">${l.values.length ? esc(l.values.join(' ')) : '—'}</td>
+            <td class="err">${esc(l.lastError || '')}</td></tr>`).join('')}
+        </table>` : '<div class="empty">No lines configured.</div>'}
+      </div>
+    </div>`).join('') : '<div class="panel"><div class="panel-body empty">No clients configured. Open Configuration to add one.</div></div>');
+
+  const mp = s.manipulation;
+  $('manip-meta').innerHTML = `Every <b>${mp.intervalMs} ms</b> and after each data update · Runs <b>${mp.runs}</b>`;
+  $('manip-status').innerHTML = mp.rules.length
+    ? `<table><tr><th>#</th><th>Manipulation</th><th>Mapping</th><th>Bits</th><th>State</th></tr>${mp.rules.map((r, i) => `<tr>
+        <td>${i + 1}</td><td>${MANIPULATIONS[r.type] || esc(r.type)}</td><td class="values">${esc(describeRule(r))}</td>
+        <td>${r.count}</td><td>${badge(r.enabled ? 'ok' : 'disabled')}</td></tr>`).join('')}</table>`
+    : '<div class="empty">No manipulation lines configured.</div>';
+}
+
+// C<addr> is a coil; H<reg>.<bit> is a bit inside a holding register.
+function holdingBit(address, bit, offset) {
+  const pos = address * 16 + bit + offset;
+  return `H${Math.floor(pos / 16)}.${pos % 16}`;
+}
+function describeRule(r) {
+  const n = r.count - 1;
+  if (!(n >= 0) || [r.sourceAddress, r.targetAddress].some((v) => !Number.isInteger(v))) return '';
+  const src = r.type === 'coilsToHolding'
+    ? `C${r.sourceAddress}–C${r.sourceAddress + n}`
+    : `${holdingBit(r.sourceAddress, r.sourceBit, 0)}–${holdingBit(r.sourceAddress, r.sourceBit, n)}`;
+  const dst = r.type === 'holdingBitsToCoils'
+    ? `C${r.targetAddress}–C${r.targetAddress + n}`
+    : `${holdingBit(r.targetAddress, r.targetBit, 0)}–${holdingBit(r.targetAddress, r.targetBit, n)}`;
+  return `${src}  →  ${dst}`;
+}
+
+async function refreshData() {
+  if (view !== 'status') return;
+  const area = $('data-area').value;
+  const start = Math.max(0, parseInt($('data-start').value, 10) || 0);
+  const count = Math.max(1, Math.min(500, parseInt($('data-count').value, 10) || 50));
+  try {
+    const { data } = await api('GET', `/api/data?area=${area}&start=${start}&count=${count}`);
+    $('data-grid').innerHTML = data.values.map((v, i) => `<div><span>${data.start + i}:</span> ${v}</div>`).join('');
+  } catch {}
+}
+
+/* ---------------- config view ---------------- */
+function newLine() {
+  return { enabled: true, unitId: 1, function: 'readHoldings', remoteAddress: 0, localAddress: 0, count: 1 };
+}
+function newMaster() {
+  return { name: `Client ${cfg.masters.length + 1}`, enabled: true, ip: '', port: 502, pollIntervalMs: 1000, timeoutMs: 1000, writeMode: 'onChange', lines: [newLine()] };
+}
+
+function renderConfig() {
+  document.querySelectorAll('[data-g]').forEach((el) => {
+    const [a, b] = el.dataset.g.split('.');
+    el.value = cfg[a][b];
+  });
+  $('cfg-masters').innerHTML = cfg.masters.map((m, mi) => `
+    <div class="panel">
+      <div class="panel-head">
+        <label class="f">Client IP address <input class="ip" data-m="${mi}" data-k="ip" value="${esc(m.ip)}" placeholder="192.168.1.10"></label>
+        <label class="f">Port <input type="number" data-m="${mi}" data-k="port" value="${m.port}" min="1" max="65535"></label>
+        <label class="f">Name <input class="name" data-m="${mi}" data-k="name" value="${esc(m.name)}"></label>
+        <label class="f">Poll interval (ms) <input type="number" data-m="${mi}" data-k="pollIntervalMs" value="${m.pollIntervalMs}" min="50"></label>
+        <label class="f">Timeout (ms) <input type="number" data-m="${mi}" data-k="timeoutMs" value="${m.timeoutMs}" min="50"></label>
+        <label class="f">Write mode
+          <select data-m="${mi}" data-k="writeMode">
+            <option value="onChange"${m.writeMode === 'onChange' ? ' selected' : ''}>On change</option>
+            <option value="everyCycle"${m.writeMode === 'everyCycle' ? ' selected' : ''}>Every cycle</option>
+          </select></label>
+        <label class="chk"><input type="checkbox" data-m="${mi}" data-k="enabled"${m.enabled ? ' checked' : ''}> Enabled</label>
+        <span class="spacer"></span>
+        <button class="danger small" data-act="del-master" data-m="${mi}">Remove client</button>
+      </div>
+      <div class="panel-body scroll">
+        <table>
+          <tr><th>#</th><th>On</th><th>Modbus ID</th><th>Transaction type</th><th>Start address on client</th><th>Target address on local slave</th><th>Number of coils / holdings</th><th></th></tr>
+          ${m.lines.map((l, li) => `<tr>
+            <td>${li + 1}</td>
+            <td><input type="checkbox" data-m="${mi}" data-l="${li}" data-k="enabled"${l.enabled ? ' checked' : ''}></td>
+            <td><input type="number" data-m="${mi}" data-l="${li}" data-k="unitId" value="${l.unitId}" min="0" max="255"></td>
+            <td><select data-m="${mi}" data-l="${li}" data-k="function">${Object.entries(FUNCTIONS).map(([k, v]) => `<option value="${k}"${l.function === k ? ' selected' : ''}>${v}</option>`).join('')}</select></td>
+            <td><input type="number" data-m="${mi}" data-l="${li}" data-k="remoteAddress" value="${l.remoteAddress}" min="0" max="65535"></td>
+            <td><input type="number" data-m="${mi}" data-l="${li}" data-k="localAddress" value="${l.localAddress}" min="0" max="65535"></td>
+            <td><input type="number" data-m="${mi}" data-l="${li}" data-k="count" value="${l.count}" min="1" max="65536"></td>
+            <td><button class="small" data-act="dup-line" data-m="${mi}" data-l="${li}">Duplicate</button>
+                <button class="small danger" data-act="del-line" data-m="${mi}" data-l="${li}">Remove</button></td>
+          </tr>`).join('')}
+        </table>
+        <div style="margin-top:8px"><button class="small" data-act="add-line" data-m="${mi}">+ Add line</button></div>
+      </div>
+    </div>`).join('') || '<div class="panel"><div class="panel-body empty">No clients. Click “+ Add client”.</div></div>';
+  renderRules();
+  showWarnings();
+}
+
+function newRule() {
+  return { enabled: true, type: 'coilsToHolding', sourceAddress: 0, sourceBit: 0, count: 16, targetAddress: 0, targetBit: 0 };
+}
+
+function renderRules() {
+  const num = (ri, k, value, max, disabled) => disabled
+    ? '<span class="hint">n/a</span>'
+    : `<input type="number" data-r="${ri}" data-k="${k}" value="${value}" min="0" max="${max}">`;
+  $('cfg-manip').innerHTML = `
+    <table>
+      <tr><th>#</th><th>On</th><th>Manipulation type</th><th>Source address</th><th>Source start bit</th><th>Number of bits</th><th>Target address</th><th>Target start bit</th><th>Result</th><th></th></tr>
+      ${cfg.manipulation.rules.map((r, ri) => `<tr>
+        <td>${ri + 1}</td>
+        <td><input type="checkbox" data-r="${ri}" data-k="enabled"${r.enabled ? ' checked' : ''}></td>
+        <td><select data-r="${ri}" data-k="type">${Object.entries(MANIPULATIONS).map(([k, v]) => `<option value="${k}"${r.type === k ? ' selected' : ''}>${v}</option>`).join('')}</select></td>
+        <td>${num(ri, 'sourceAddress', r.sourceAddress, 65535)} <span class="hint">${r.type === 'coilsToHolding' ? 'coil' : 'holding'}</span></td>
+        <td>${num(ri, 'sourceBit', r.sourceBit, 15, r.type === 'coilsToHolding')}</td>
+        <td>${num(ri, 'count', r.count, 65536)}</td>
+        <td>${num(ri, 'targetAddress', r.targetAddress, 65535)} <span class="hint">${r.type === 'holdingBitsToCoils' ? 'coil' : 'holding'}</span></td>
+        <td>${num(ri, 'targetBit', r.targetBit, 15, r.type === 'holdingBitsToCoils')}</td>
+        <td class="values" id="rule-desc-${ri}">${esc(describeRule(r))}</td>
+        <td><button class="small" data-act="dup-rule" data-r="${ri}">Duplicate</button>
+            <button class="small danger" data-act="del-rule" data-r="${ri}">Remove</button></td>
+      </tr>`).join('')}
+    </table>
+    ${cfg.manipulation.rules.length ? '' : '<div class="empty">No manipulation lines.</div>'}
+    <div style="margin-top:8px"><button class="small" data-act="add-rule">+ Add manipulation line</button></div>`;
+}
+
+const NUMERIC = new Set(['port', 'pollIntervalMs', 'timeoutMs', 'unitId', 'remoteAddress', 'localAddress', 'count']);
+
+function onConfigInput(e) {
+  const el = e.target;
+  if (el.dataset.g) {
+    const [a, b] = el.dataset.g.split('.');
+    cfg[a][b] = parseInt(el.value, 10);
+    return;
+  }
+  if (el.dataset.r !== undefined && el.dataset.k) {
+    const ri = +el.dataset.r;
+    const rule = cfg.manipulation.rules[ri];
+    const k = el.dataset.k;
+    rule[k] = el.type === 'checkbox' ? el.checked : k === 'type' ? el.value : parseInt(el.value, 10);
+    // A type change switches which bit fields apply, so redraw; otherwise keep focus in place.
+    if (k === 'type') {
+      if (rule.type === 'coilsToHolding') rule.sourceBit = 0;
+      if (rule.type === 'holdingBitsToCoils') rule.targetBit = 0;
+      renderRules();
+    } else $(`rule-desc-${ri}`).textContent = describeRule(rule);
+    return;
+  }
+  if (el.dataset.m === undefined || !el.dataset.k) return;
+  const m = cfg.masters[+el.dataset.m];
+  const target = el.dataset.l !== undefined ? m.lines[+el.dataset.l] : m;
+  const k = el.dataset.k;
+  target[k] = el.type === 'checkbox' ? el.checked : NUMERIC.has(k) ? parseInt(el.value, 10) : el.value;
+  showWarnings();
+}
+
+function onConfigClick(e) {
+  const act = e.target.dataset.act;
+  if (!act) return;
+  const mi = +e.target.dataset.m, li = +e.target.dataset.l, ri = +e.target.dataset.r;
+  const rules = cfg.manipulation.rules;
+  if (act === 'add-rule') rules.push(newRule());
+  if (act === 'dup-rule') rules.splice(ri + 1, 0, { ...rules[ri] });
+  if (act === 'del-rule') rules.splice(ri, 1);
+  if (act === 'add-line') cfg.masters[mi].lines.push(newLine());
+  if (act === 'dup-line') {
+    const copy = { ...cfg.masters[mi].lines[li] };
+    copy.localAddress += copy.count;
+    cfg.masters[mi].lines.splice(li + 1, 0, copy);
+  }
+  if (act === 'del-line') cfg.masters[mi].lines.splice(li, 1);
+  if (act === 'del-master' && confirm(`Remove client "${cfg.masters[mi].name}" and all its lines?`)) cfg.masters.splice(mi, 1);
+  renderConfig();
+}
+
+// Two read lines filling the same local addresses overwrite each other every cycle.
+function overlapWarnings() {
+  const ranges = [];
+  cfg.masters.forEach((m, mi) => m.lines.forEach((l, li) => {
+    if (!l.enabled || !m.enabled || !l.function?.startsWith('read')) return;
+    ranges.push({ area: l.function === 'readCoils' ? 'coils' : 'holdings', s: l.localAddress, e: l.localAddress + l.count, who: `${m.name} line ${li + 1}` });
+  }));
+  const out = [];
+  for (let i = 0; i < ranges.length; i++) for (let j = i + 1; j < ranges.length; j++) {
+    const a = ranges[i], b = ranges[j];
+    if (a.area === b.area && a.s < b.e && b.s < a.e) out.push(`${a.who} and ${b.who} both read into local ${a.area} ${Math.max(a.s, b.s)}–${Math.min(a.e, b.e) - 1}`);
+  }
+  return out;
+}
+
+function showWarnings(errors, notice) {
+  const w = overlapWarnings();
+  $('cfg-messages').innerHTML =
+    (notice ? `<div class="notice">${esc(notice)}</div>` : '') +
+    (errors?.length ? `<div class="errors"><b>Configuration not saved:</b><ul>${errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></div>` : '') +
+    (w.length ? `<div class="warnings"><b>Warning — overlapping local targets:</b><ul>${w.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '');
+}
+
+async function loadConfig() {
+  const { status, data } = await api('GET', '/api/config');
+  if (status === 401) { token = null; sessionStorageSet('gwToken', null); showStatus(); openLogin(); return; }
+  cfg = data;
+  renderConfig();
+}
+
+async function saveConfig() {
+  const { status, data } = await api('PUT', '/api/config', cfg);
+  if (status === 401) { token = null; sessionStorageSet('gwToken', null); openLogin(); return; }
+  if (status !== 200) { showWarnings(data.errors || [data.error || 'Save failed']); window.scrollTo(0, 0); return; }
+  showWarnings(null, data.restartRequired
+    ? 'Saved and applied. Restart the gateway service for the new web UI port to take effect.'
+    : 'Saved and applied. Clients are reconnecting with the new configuration.');
+  window.scrollTo(0, 0);
+}
+
+/* ---------------- navigation / login ---------------- */
+function showStatus() {
+  view = 'status';
+  $('view-status').classList.remove('hidden');
+  $('view-config').classList.add('hidden');
+  $('btn-config').classList.remove('hidden');
+  $('btn-status').classList.add('hidden');
+  $('btn-logout').classList.toggle('hidden', !token);
+  refreshStatus();
+  refreshData();
+}
+function showConfig() {
+  view = 'config';
+  $('view-status').classList.add('hidden');
+  $('view-config').classList.remove('hidden');
+  $('btn-config').classList.add('hidden');
+  $('btn-status').classList.remove('hidden');
+  $('btn-logout').classList.remove('hidden');
+  loadConfig();
+}
+function openLogin() {
+  $('login-err').textContent = '';
+  $('login-pass').value = '';
+  $('login').classList.remove('hidden');
+  $('login-pass').focus();
+}
+
+$('btn-config').onclick = () => (token ? showConfig() : openLogin());
+$('btn-status').onclick = showStatus;
+$('btn-logout').onclick = async () => { await api('POST', '/api/logout'); token = null; sessionStorageSet('gwToken', null); showStatus(); };
+$('login-cancel').onclick = () => $('login').classList.add('hidden');
+$('login-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const { status, data } = await api('POST', '/api/login', { password: $('login-pass').value });
+  if (status !== 200) { $('login-err').textContent = data.error || 'Login failed'; $('login-pass').select(); return; }
+  token = data.token;
+  sessionStorageSet('gwToken', token);
+  $('login').classList.add('hidden');
+  showConfig();
+};
+$('btn-save').onclick = saveConfig;
+$('btn-reload').onclick = () => { if (confirm('Discard unsaved changes?')) loadConfig(); };
+$('btn-add-master').onclick = () => { cfg.masters.push(newMaster()); renderConfig(); };
+$('view-config').addEventListener('input', onConfigInput);
+$('view-config').addEventListener('change', onConfigInput);
+$('view-config').addEventListener('click', onConfigClick);
+['data-area', 'data-start', 'data-count'].forEach((id) => $(id).addEventListener('change', refreshData));
+
+showStatus();
+setInterval(() => { refreshStatus(); refreshData(); }, 1000);
+</script>
+</body>
+</html>
